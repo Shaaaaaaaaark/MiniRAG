@@ -1,0 +1,29 @@
+# IDE / 编辑器
+.idea/
+.settings/
+.vscode/
+*.swp
+.orig
+
+# 系统
+**/.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Docker 数据卷
+volumes/
+
+# 敏感信息：真实密钥（保留 .env.example 模板）
+.env
+*.env
+!.env.example

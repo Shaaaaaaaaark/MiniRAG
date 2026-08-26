@@ -1,0 +1,34 @@
+[project]
+name = "minirag"
+version = "0.1.0"
+description = "精简轻量版 LightRAG：双层图谱检索内核（Milvus + PostgreSQL），检索即服务"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "openai>=1.40",
+    "tiktoken>=0.7",
+    "asyncpg>=0.29",
+    "pymilvus>=2.5.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["minirag*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
