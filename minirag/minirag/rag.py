@@ -1,7 +1,7 @@
 """MiniRAG 门面：装配存储/模型/索引/检索，提供索引与检索两个入口。
 
 用法：
-    rag = MiniRAG()          # 读取 minirag/config.yaml（或 MINIRAG_CONFIG）
+    rag = MiniRAG()          # 读取 config.yaml；不存在时回退到 config.example.yaml
     await rag.startup()
     await rag.index(DocumentInput(source="corpus/x.md"))
     result = await rag.retrieve("BGP 中断如何处理", QueryParam(mode="mix"))

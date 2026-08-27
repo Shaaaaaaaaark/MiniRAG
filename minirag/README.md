@@ -57,12 +57,24 @@ minirag/
 
 ## 使用
 
+### 配置
+
+仓库只提交 `config.example.yaml` 模板；真实 `config.yaml` 保留在本地并已加入 `.gitignore`。
+
+```bash
+cd minirag
+cp config.example.yaml config.yaml
+# 编辑 config.yaml，或直接 export MINIRAG_* 环境变量
+```
+
+也可以通过 `MINIRAG_CONFIG=/path/to/config.yaml` 指定私有配置文件。
+
 ### 作为 Python 包
 
 ```python
 from minirag import MiniRAG, DocumentInput, QueryParam
 
-rag = MiniRAG()                 # 读取 minirag/config.yaml（或 MINIRAG_CONFIG）
+rag = MiniRAG()                 # 读取 config.yaml；不存在时回退到 config.example.yaml
 await rag.startup()
 await rag.index(DocumentInput(source="corpus/云网络告警处理手册.md"))
 result = await rag.retrieve("BGP 中断如何处理", QueryParam(mode="mix", top_k=8))
@@ -73,7 +85,9 @@ await rag.shutdown()
 ### 作为 HTTP 服务
 
 ```bash
-export MINIRAG_CHAT_API_KEY=...  MINIRAG_EMBEDDING_API_KEY=...
+export MINIRAG_CHAT_API_KEY=...
+export MINIRAG_EMBEDDING_API_KEY=...
+export MINIRAG_RERANK_API_KEY=...
 uvicorn minirag.api.server:app --port 8090
 ```
 
@@ -95,4 +109,5 @@ python scripts/smoke.py retrieve "BGP 中断如何处理" --mode mix --top-k 8
 ## 依赖
 
 Milvus 与 PostgreSQL 通过仓库根目录 `docker-compose.yml` 拉起。模型沿用现有
-`config.yaml`（方舟 chat / 百炼 embedding+rerank），Key 经环境变量注入。
+`config.example.yaml` 模板，真实 Key、endpoint 与 model id 经本地 `config.yaml`
+或环境变量注入。

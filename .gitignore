@@ -23,6 +23,13 @@ dist/
 # Docker 数据卷
 volumes/
 
+# 本地参考源码 / 方案草稿（不进入公开仓库）
+LightRAG/
+RAG检索服务-需求与方案.md
+
+# 本地运行配置：仓库只提交 minirag/config.example.yaml
+minirag/config.yaml
+
 # 敏感信息：真实密钥（保留 .env.example 模板）
 .env
 *.env

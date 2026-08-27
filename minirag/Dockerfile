@@ -21,7 +21,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 # 拷贝应用代码与配置
 COPY minirag ./minirag
-COPY config.yaml ./config.yaml
+COPY config.example.yaml ./config.example.yaml
 
 EXPOSE 8090
 

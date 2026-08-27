@@ -1,0 +1,43 @@
+# Public template. Copy to config.yaml for local use, or set MINIRAG_CONFIG.
+# Keep real API keys, private endpoint URLs, and internal model IDs out of Git.
+
+chat:
+  provider: ${MINIRAG_CHAT_PROVIDER:-openai}
+  model: ${MINIRAG_CHAT_MODEL:-gpt-4o-mini}
+  base_url: ${MINIRAG_CHAT_BASE_URL:-https://api.openai.com/v1}
+  api_key: ${MINIRAG_CHAT_API_KEY}
+  temperature: 0
+  timeout: ${MINIRAG_CHAT_TIMEOUT:-1800}
+  extra_body: {}
+
+embedding:
+  provider: ${MINIRAG_EMBEDDING_PROVIDER:-openai}
+  model: ${MINIRAG_EMBEDDING_MODEL:-text-embedding-3-small}
+  base_url: ${MINIRAG_EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+  api_key: ${MINIRAG_EMBEDDING_API_KEY}
+  dimensions: ${MINIRAG_EMBEDDING_DIMENSIONS:-1536}
+
+rerank:
+  provider: ${MINIRAG_RERANK_PROVIDER:-bailian}
+  model: ${MINIRAG_RERANK_MODEL:-gte-rerank-v2}
+  base_url: ${MINIRAG_RERANK_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+  api_key: ${MINIRAG_RERANK_API_KEY}
+
+milvus:
+  uri: ${MILVUS_URI:-http://localhost:19530}
+  db: ${MILVUS_DB:-oncall}
+
+postgres:
+  dsn: ${POSTGRES_DSN:-postgresql://oncall:oncall@localhost:5432/oncall}
+
+retrieval:
+  entity_topk: 10
+  relation_topk: 10
+  dense_topk: 20
+  bm25_topk: 20
+  rerank_topk: 8
+  rrf_k: 60
+  max_rounds: 2
+  chunk_token_budget: 6000
+
+chunker: header_token

@@ -1,6 +1,6 @@
 # 统一编排：minirag 检索服务 + Milvus（etcd/minio/standalone/attu）+ PostgreSQL
 # 用法：
-#   export MINIRAG_CHAT_API_KEY=...  MINIRAG_EMBEDDING_API_KEY=...
+#   export MINIRAG_CHAT_API_KEY=... MINIRAG_EMBEDDING_API_KEY=... MINIRAG_RERANK_API_KEY=...
 #   docker compose up -d --build
 services:
   # ---------------- 应用 ----------------
@@ -12,9 +12,20 @@ services:
     ports:
       - "8090:8090"
     environment:
-      # 模型密钥从宿主环境注入
-      MINIRAG_CHAT_API_KEY: ${MINIRAG_CHAT_API_KEY}
-      MINIRAG_EMBEDDING_API_KEY: ${MINIRAG_EMBEDDING_API_KEY}
+      # 模型配置从宿主环境注入；真实值放 .env 或私有 config.yaml，不提交到 Git
+      MINIRAG_CHAT_PROVIDER: ${MINIRAG_CHAT_PROVIDER:-openai}
+      MINIRAG_CHAT_MODEL: ${MINIRAG_CHAT_MODEL:-gpt-4o-mini}
+      MINIRAG_CHAT_BASE_URL: ${MINIRAG_CHAT_BASE_URL:-https://api.openai.com/v1}
+      MINIRAG_CHAT_API_KEY: ${MINIRAG_CHAT_API_KEY:-}
+      MINIRAG_EMBEDDING_PROVIDER: ${MINIRAG_EMBEDDING_PROVIDER:-openai}
+      MINIRAG_EMBEDDING_MODEL: ${MINIRAG_EMBEDDING_MODEL:-text-embedding-3-small}
+      MINIRAG_EMBEDDING_BASE_URL: ${MINIRAG_EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      MINIRAG_EMBEDDING_API_KEY: ${MINIRAG_EMBEDDING_API_KEY:-}
+      MINIRAG_EMBEDDING_DIMENSIONS: ${MINIRAG_EMBEDDING_DIMENSIONS:-1536}
+      MINIRAG_RERANK_PROVIDER: ${MINIRAG_RERANK_PROVIDER:-bailian}
+      MINIRAG_RERANK_MODEL: ${MINIRAG_RERANK_MODEL:-gte-rerank-v2}
+      MINIRAG_RERANK_BASE_URL: ${MINIRAG_RERANK_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      MINIRAG_RERANK_API_KEY: ${MINIRAG_RERANK_API_KEY:-}
       # 存储地址指向 compose 网络内的服务名
       MILVUS_URI: http://standalone:19530
       POSTGRES_DSN: postgresql://oncall:oncall@postgres:5432/oncall

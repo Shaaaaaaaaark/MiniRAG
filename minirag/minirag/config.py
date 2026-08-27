@@ -88,14 +88,24 @@ def _expand_env(value: Any) -> Any:
 
 
 def load_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
-    """从 YAML 加载配置。默认读取包同级目录（minirag/）的 config.yaml。"""
+    """从 YAML 加载配置。
+
+    默认优先读取包同级目录的 config.yaml；公开仓库不提交真实配置，
+    因此缺省回退到 config.example.yaml。
+    """
     import yaml
 
-    path = Path(config_path) if config_path else Path(__file__).resolve().parents[1] / "config.yaml"
+    if config_path:
+        path = Path(config_path)
+    else:
+        config_dir = Path(__file__).resolve().parents[1]
+        path = config_dir / "config.yaml"
+        if not path.exists():
+            path = config_dir / "config.example.yaml"
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return Settings.model_validate(_expand_env(raw))
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return load_settings(os.environ.get("MINIRAG_CONFIG"))
+    return load_settings(os.environ.get("MINIRAG_CONFIG") or None)
