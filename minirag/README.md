@@ -117,7 +117,7 @@ from minirag import MiniRAG, DocumentInput, QueryParam
 
 rag = MiniRAG()                 # 读取 config.yaml，或使用 MINIRAG_CONFIG 指定路径
 await rag.startup()
-await rag.index(DocumentInput(source="corpus/云网络告警处理手册.md"))
+await rag.index(DocumentInput(source="/path/to/document.md"))
 result = await rag.retrieve("BGP 中断如何处理", QueryParam(mode="text", top_k=8))
 # result.entities / result.relationships / result.chunks —— 只返回证据，不生成答案
 await rag.shutdown()
@@ -134,7 +134,7 @@ uvicorn minirag.api.server:app --port 8090
 
 ```bash
 # 索引
-curl -X POST localhost:8090/documents -d '{"source":"corpus/云网络告警处理手册.md"}'
+curl -X POST localhost:8090/documents -d '{"source":"/path/to/document.md"}'
 # 检索（只返回证据）
 curl -X POST localhost:8090/retrieve -d '{"query":"BGP 中断如何处理","mode":"text","top_k":8}'
 ```
@@ -194,8 +194,8 @@ JIT 使用当前 `lark-cli` 身份实时读取最新 revision，再对子块召�
 
 ```bash
 cd minirag
-python scripts/smoke.py index ../corpus/云网络告警处理手册.md
-python scripts/smoke.py retrieve "BGP 中断如何处理" --mode mix --top-k 8
+python scripts/smoke.py index /path/to/document.md
+python scripts/smoke.py retrieve "BGP 中断如何处理" --mode text --top-k 8
 ```
 
 ## 依赖
