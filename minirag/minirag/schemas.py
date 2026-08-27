@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 # ---------------------------------------------------------------------------
 
 EvidenceKind = Literal["chunk", "entity", "relation"]
-QueryMode = Literal["local", "global", "hybrid", "mix", "naive"]
+QueryMode = Literal["text", "local", "global", "hybrid", "mix", "naive"]
 
 # 云网络固定实体类型
 EntityType = Literal[
@@ -37,7 +37,7 @@ class Message(BaseModel):
 
 def make_evidence_id(kind: str, ref_id: str) -> str:
     """由 (kind, ref_id) 生成稳定、可复现的证据 ID。"""
-    return "e_" + hashlib.sha1(f"{kind}:{ref_id}".encode("utf-8")).hexdigest()[:16]
+    return "e_" + hashlib.sha1(f"{kind}:{ref_id}".encode()).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -45,24 +45,30 @@ def make_evidence_id(kind: str, ref_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 BlockType = Literal["heading", "paragraph", "table"]
+ChunkingStrategy = Literal["header_token", "parent_child"]
 
 
 class Block(BaseModel):
     type: BlockType
     text: str
     level: int | None = None
+    block_id: str | None = None
 
 
 class DocumentInput(BaseModel):
     source: str
+    source_id: str | None = None
     revision: str | None = None
     title: str | None = None
     text: str | None = None  # 直接传文本时使用（否则按 source 路径读取）
+    blocks: list[Block] | None = None
+    chunking_strategy: ChunkingStrategy | None = None
 
 
 class ParsedDocument(BaseModel):
     document_id: str
     source: str
+    source_id: str | None = None
     title: str | None = None
     revision: str | None = None
     blocks: list[Block] = Field(default_factory=list)
@@ -75,6 +81,9 @@ class Chunk(BaseModel):
     heading_path: str
     content: str
     token_count: int
+    parent_id: str | None = None
+    parent_content: str | None = None
+    block_id: str | None = None
 
 
 class Entity(BaseModel):
@@ -143,12 +152,15 @@ class Evidence(BaseModel):
     source: str
     heading_path: str | None = None
     score: float = 0.0
+    parent_id: str | None = None
+    block_id: str | None = None
+    revision: str | None = None
 
 
 class QueryParam(BaseModel):
     """检索参数（精简自官方 QueryParam）。"""
 
-    mode: QueryMode = "mix"
+    mode: QueryMode = "text"
     top_k: int | None = None          # KG 实体/关系召回条数（None 用 config 默认）
     chunk_top_k: int | None = None    # chunk 召回条数
     max_entity_tokens: int | None = None

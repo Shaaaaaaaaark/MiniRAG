@@ -19,9 +19,9 @@ RUN uv venv /opt/venv && \
 ENV PATH="/opt/venv/bin:$PATH" \
     VIRTUAL_ENV=/opt/venv
 
-# 拷贝应用代码与配置
+# 拷贝应用代码；镜像内使用公开模板作为默认 config.yaml，真实值由环境变量注入
 COPY minirag ./minirag
-COPY config.example.yaml ./config.example.yaml
+COPY config.example.yaml ./config.yaml
 
 EXPOSE 8090
 

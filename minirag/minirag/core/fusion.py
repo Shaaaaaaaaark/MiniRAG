@@ -31,7 +31,7 @@ def entity_id(name: str) -> str:
 def relation_id(src: str, dst: str) -> str:
     """关系 ID：按规范化名排序后生成，保证无向边 (a,b)==(b,a)。"""
     a, b = sorted([normalize_name(src), normalize_name(dst)])
-    return "rel_" + hashlib.sha1(f"{a}->{b}".encode("utf-8")).hexdigest()[:16]
+    return "rel_" + hashlib.sha1(f"{a}->{b}".encode()).hexdigest()[:16]
 
 
 def canonical_edge_ids(src: str, dst: str) -> tuple[str, str]:

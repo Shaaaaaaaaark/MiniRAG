@@ -5,7 +5,7 @@
   # 索引一篇语料
   python scripts/smoke.py index ../corpus/云网络告警处理手册.md
 
-  # 检索（默认 mix 模式）
+  # 检索（默认 text 模式）
   python scripts/smoke.py retrieve "BGP 中断如何处理" --mode mix --top-k 8
 
 需要：可用的 Milvus 与 PostgreSQL；模型 Key 经环境变量注入（见 config.yaml）。
@@ -70,7 +70,11 @@ def main() -> int:
 
     p_ret = sub.add_parser("retrieve", help="检索证据")
     p_ret.add_argument("query", help="查询问题")
-    p_ret.add_argument("--mode", default="mix", choices=["local", "global", "hybrid", "mix", "naive"])
+    p_ret.add_argument(
+        "--mode",
+        default="text",
+        choices=["text", "local", "global", "hybrid", "mix", "naive"],
+    )
     p_ret.add_argument("--top-k", type=int, default=None)
 
     args = parser.parse_args()

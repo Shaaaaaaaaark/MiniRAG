@@ -5,14 +5,18 @@
 """
 from __future__ import annotations
 
+import logging
+
 from minirag.config import RetrievalCfg
 from minirag.core import keywords as kw_mod
 from minirag.core.fusion_retrieval import apply_rerank, take_within_budget
 from minirag.core.modes import perform_search
 from minirag.models.factory import ModelBundle
-from minirag.schemas import Evidence, QueryParam, RetrievalResult
+from minirag.schemas import Evidence, Keywords, QueryParam, RetrievalResult
 from minirag.storage.milvus_store import MilvusStore
 from minirag.storage.pg_store import PgStore
+
+_logger = logging.getLogger(__name__)
 
 
 class Retriever:
@@ -26,8 +30,10 @@ class Retriever:
         param = param or QueryParam()
         cfg = self._effective_cfg(param)
 
-        # 双层关键词（naive 模式也抽，但不使用，成本可忽略；如需极致可跳过）
-        kw = await kw_mod.extract_keywords(query, self._models.chat)
+        if param.mode in {"text", "naive"}:
+            kw = Keywords()
+        else:
+            kw = await kw_mod.extract_keywords(query, self._models.chat)
 
         recall = await perform_search(
             param.mode, query, kw, cfg, self._models, self._milvus, self._pg
@@ -70,6 +76,14 @@ class Retriever:
         return RetrievalCfg.model_validate(data)
 
     async def _rerank(self, query: str, chunks: list[Evidence], top_k: int) -> list[Evidence]:
-        results = await self._models.rerank.rerank(query, [c.text for c in chunks], top_k)
+        try:
+            results = await self._models.rerank.rerank(
+                query,
+                [c.text for c in chunks],
+                top_k,
+            )
+        except Exception as err:  # noqa: BLE001 - rerank is an optional enhancement
+            _logger.warning("Rerank 调用失败，保留融合排序：%s", err)
+            return chunks
         reranked = apply_rerank(chunks, results)
         return reranked or chunks

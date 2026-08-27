@@ -7,7 +7,8 @@
 - global：high 关键词 → 关系向量 → 取两端实体 + 关系来源 chunk
 - hybrid：local + global，round-robin 合并
 - mix   ：hybrid + query 向量召回 chunk（默认）
-- naive ：仅 query 向量召回 chunk
+- text  ：Dense + BM25 召回 chunk（默认）
+- naive ：text 的兼容别名
 """
 from __future__ import annotations
 
@@ -58,11 +59,20 @@ async def _global_recall(
 
 
 async def _chunk_recall(
-    query: str, cfg: RetrievalCfg, models: ModelBundle, milvus: MilvusStore
+    query: str,
+    cfg: RetrievalCfg,
+    models: ModelBundle,
+    milvus: MilvusStore,
+    pg: PgStore,
 ) -> list[Evidence]:
     """query → chunk 向量 + BM25 混合召回。"""
     (query_vec,) = await models.embedding.embed([query])
-    return await milvus.hybrid_search_chunks(query, query_vec, cfg.dense_topk, cfg.bm25_topk)
+    hits = await milvus.hybrid_search_chunks(query, query_vec, cfg.dense_topk, cfg.bm25_topk)
+    hydrated = await pg.chunks_by_ids([hit.ref_id for hit in hits])
+    scores = {hit.ref_id: hit.score for hit in hits}
+    for evidence in hydrated:
+        evidence.score = scores.get(evidence.ref_id, 0.0)
+    return hydrated
 
 
 async def perform_search(
@@ -75,8 +85,8 @@ async def perform_search(
     pg: PgStore,
 ) -> RawRecall:
     """按模式路由，返回三组原始召回证据。"""
-    if mode == "naive":
-        chunks = await _chunk_recall(query, cfg, models, milvus)
+    if mode in {"text", "naive"}:
+        chunks = await _chunk_recall(query, cfg, models, milvus, pg)
         return RawRecall(chunks=chunks)
 
     if mode == "local":
@@ -94,6 +104,6 @@ async def perform_search(
         chunks=round_robin_merge(local.chunks, glob.chunks),
     )
     if mode == "mix":
-        vector_chunks = await _chunk_recall(query, cfg, models, milvus)
+        vector_chunks = await _chunk_recall(query, cfg, models, milvus, pg)
         merged.chunks = round_robin_merge(merged.chunks, vector_chunks)
     return merged

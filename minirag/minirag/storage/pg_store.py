@@ -13,7 +13,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from minirag.config import PostgresCfg
-from minirag.schemas import Chunk, Entity, Evidence, ParsedDocument, Relation, make_evidence_id
+from minirag.schemas import (
+    Chunk,
+    Entity,
+    Evidence,
+    ParsedDocument,
+    Relation,
+    make_evidence_id,
+)
 
 if TYPE_CHECKING:
     from asyncpg import Pool
@@ -34,9 +41,16 @@ CREATE TABLE IF NOT EXISTS chunks (
     ord          INT  NOT NULL,
     heading_path TEXT,
     content      TEXT NOT NULL,
-    token_count  INT  NOT NULL
+    token_count  INT  NOT NULL,
+    parent_id    TEXT,
+    parent_content TEXT,
+    block_id     TEXT
 );
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS parent_id TEXT;
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS parent_content TEXT;
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS block_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_id);
 
 CREATE TABLE IF NOT EXISTS graph_nodes (
     id            TEXT PRIMARY KEY,
@@ -67,10 +81,10 @@ class PgStore:
 
     def __init__(self, cfg: PostgresCfg) -> None:
         self._cfg = cfg
-        self._pool: "Pool | None" = None
+        self._pool: Pool | None = None
 
     @property
-    def pool(self) -> "Pool":
+    def pool(self) -> Pool:
         if self._pool is None:
             raise RuntimeError("PgStore 未连接，请先调用 connect()")
         return self._pool
@@ -99,21 +113,161 @@ class PgStore:
         async with self.pool.acquire() as conn:
             await conn.execute(sql, doc.document_id, doc.source, doc.title, doc.revision, status)
 
-    async def delete_document_children(self, document_id: str) -> None:
-        """重新索引前清理旧 chunk（级联）。图节点/边为全局融合，单独处理。"""
+    async def chunk_ids_for_document(self, document_id: str) -> list[str]:
+        sql = "SELECT id FROM chunks WHERE document_id=$1 ORDER BY ord"
         async with self.pool.acquire() as conn:
-            await conn.execute("DELETE FROM chunks WHERE document_id=$1", document_id)
+            rows = await conn.fetch(sql, document_id)
+        return [r["id"] for r in rows]
+
+    async def document_ids_for_source(self, source: str) -> list[str]:
+        sql = "SELECT id FROM documents WHERE source=$1"
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(sql, source)
+        return [r["id"] for r in rows]
+
+    async def delete_document(self, document_id: str) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute("DELETE FROM documents WHERE id=$1", document_id)
+
+    async def detach_source_chunks_from_graph(self, chunk_ids: list[str]) -> tuple[list[str], list[str]]:
+        """从图谱节点/边里移除指定 chunk 来源，并删除失去来源的图谱行。
+
+        返回值为 (deleted_node_ids, deleted_edge_ids)，调用方据此清理对应向量。
+        """
+        if not chunk_ids:
+            return [], []
+
+        update_edges_sql = """
+        UPDATE graph_edges AS ge
+        SET source_chunks = ARRAY(
+            SELECT DISTINCT chunk_id
+            FROM unnest(ge.source_chunks) AS source_chunk(chunk_id)
+            WHERE chunk_id <> ALL($1::text[])
+        )
+        WHERE ge.source_chunks && $1::text[]
+        """
+        delete_empty_edges_sql = """
+        DELETE FROM graph_edges
+        WHERE cardinality(source_chunks) = 0
+        RETURNING id
+        """
+        update_nodes_sql = """
+        UPDATE graph_nodes AS gn
+        SET source_chunks = ARRAY(
+            SELECT DISTINCT chunk_id
+            FROM unnest(gn.source_chunks) AS source_chunk(chunk_id)
+            WHERE chunk_id <> ALL($1::text[])
+        ),
+            updated_at = now()
+        WHERE gn.source_chunks && $1::text[]
+        """
+        delete_empty_nodes_sql = """
+        DELETE FROM graph_nodes
+        WHERE cardinality(source_chunks) = 0
+        RETURNING id
+        """
+        delete_orphan_edges_sql = """
+        DELETE FROM graph_edges AS ge
+        WHERE NOT EXISTS (SELECT 1 FROM graph_nodes AS gn WHERE gn.id = ge.src_id)
+           OR NOT EXISTS (SELECT 1 FROM graph_nodes AS gn WHERE gn.id = ge.tgt_id)
+        RETURNING id
+        """
+
+        async with self.pool.acquire() as conn, conn.transaction():
+            await conn.execute(update_edges_sql, chunk_ids)
+            empty_edge_rows = await conn.fetch(delete_empty_edges_sql)
+            await conn.execute(update_nodes_sql, chunk_ids)
+            empty_node_rows = await conn.fetch(delete_empty_nodes_sql)
+            orphan_edge_rows = await conn.fetch(delete_orphan_edges_sql)
+
+        deleted_node_ids = [r["id"] for r in empty_node_rows]
+        deleted_edge_ids = [r["id"] for r in [*empty_edge_rows, *orphan_edge_rows]]
+        return list(dict.fromkeys(deleted_node_ids)), list(dict.fromkeys(deleted_edge_ids))
+
+    async def prune_orphan_graph_sources(self) -> tuple[list[str], list[str]]:
+        """Remove graph contributions whose source chunks no longer exist."""
+        prune_edges_sql = """
+        UPDATE graph_edges AS ge
+        SET source_chunks = ARRAY(
+            SELECT source_chunk
+            FROM unnest(ge.source_chunks) AS source(source_chunk)
+            WHERE EXISTS (SELECT 1 FROM chunks AS c WHERE c.id = source_chunk)
+        )
+        WHERE EXISTS (
+            SELECT 1
+            FROM unnest(ge.source_chunks) AS source(source_chunk)
+            WHERE NOT EXISTS (SELECT 1 FROM chunks AS c WHERE c.id = source_chunk)
+        )
+        """
+        prune_nodes_sql = """
+        UPDATE graph_nodes AS gn
+        SET source_chunks = ARRAY(
+            SELECT source_chunk
+            FROM unnest(gn.source_chunks) AS source(source_chunk)
+            WHERE EXISTS (SELECT 1 FROM chunks AS c WHERE c.id = source_chunk)
+        ),
+            updated_at = now()
+        WHERE EXISTS (
+            SELECT 1
+            FROM unnest(gn.source_chunks) AS source(source_chunk)
+            WHERE NOT EXISTS (SELECT 1 FROM chunks AS c WHERE c.id = source_chunk)
+        )
+        """
+        delete_empty_edges_sql = """
+        DELETE FROM graph_edges
+        WHERE cardinality(source_chunks) = 0
+        RETURNING id
+        """
+        delete_empty_nodes_sql = """
+        DELETE FROM graph_nodes
+        WHERE cardinality(source_chunks) = 0
+        RETURNING id
+        """
+        delete_orphan_edges_sql = """
+        DELETE FROM graph_edges AS ge
+        WHERE NOT EXISTS (SELECT 1 FROM graph_nodes AS gn WHERE gn.id = ge.src_id)
+           OR NOT EXISTS (SELECT 1 FROM graph_nodes AS gn WHERE gn.id = ge.tgt_id)
+        RETURNING id
+        """
+
+        async with self.pool.acquire() as conn, conn.transaction():
+            await conn.execute(prune_edges_sql)
+            await conn.execute(prune_nodes_sql)
+            empty_edge_rows = await conn.fetch(delete_empty_edges_sql)
+            empty_node_rows = await conn.fetch(delete_empty_nodes_sql)
+            orphan_edge_rows = await conn.fetch(delete_orphan_edges_sql)
+
+        node_ids = [row["id"] for row in empty_node_rows]
+        edge_ids = [row["id"] for row in [*empty_edge_rows, *orphan_edge_rows]]
+        return list(dict.fromkeys(node_ids)), list(dict.fromkeys(edge_ids))
 
     # ---- chunks ----
     async def insert_chunks(self, chunks: list[Chunk]) -> None:
         sql = """
-        INSERT INTO chunks(id, document_id, ord, heading_path, content, token_count)
-        VALUES($1,$2,$3,$4,$5,$6)
+        INSERT INTO chunks(
+            id, document_id, ord, heading_path, content, token_count,
+            parent_id, parent_content, block_id
+        )
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT(id) DO UPDATE SET
             content=EXCLUDED.content, heading_path=EXCLUDED.heading_path,
-            token_count=EXCLUDED.token_count;
+            token_count=EXCLUDED.token_count, parent_id=EXCLUDED.parent_id,
+            parent_content=EXCLUDED.parent_content, block_id=EXCLUDED.block_id;
         """
-        rows = [(c.id, c.document_id, c.ord, c.heading_path, c.content, c.token_count) for c in chunks]
+        rows = [
+            (
+                c.id,
+                c.document_id,
+                c.ord,
+                c.heading_path,
+                c.content,
+                c.token_count,
+                c.parent_id,
+                c.parent_content,
+                c.block_id,
+            )
+            for c in chunks
+        ]
         async with self.pool.acquire() as conn:
             await conn.executemany(sql, rows)
 
@@ -122,23 +276,42 @@ class PgStore:
         if not chunk_ids:
             return []
         sql = """
-        SELECT c.id, c.content, c.heading_path, d.source
+        SELECT c.id, c.parent_id, COALESCE(c.parent_content, c.content) AS content,
+               c.heading_path, c.block_id, d.source, d.revision
         FROM chunks c JOIN documents d ON c.document_id = d.id
         WHERE c.id = ANY($1::text[])
         """
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(sql, chunk_ids)
-        return [
-            Evidence(
-                evidence_id=make_evidence_id("chunk", r["id"]),
-                kind="chunk",
-                ref_id=r["id"],
-                text=r["content"],
-                source=r["source"],
-                heading_path=r["heading_path"],
+        by_id = {r["id"]: r for r in rows}
+        evidences: list[Evidence] = []
+        seen: set[str] = set()
+        for chunk_id in chunk_ids:
+            row = by_id.get(chunk_id)
+            if row is None:
+                continue
+            evidence_key = row["parent_id"] or row["id"]
+            evidence_id = make_evidence_id("chunk", evidence_key)
+            if evidence_id in seen:
+                continue
+            seen.add(evidence_id)
+            source = row["source"]
+            if row["block_id"]:
+                source = f"{source}#{row['block_id']}"
+            evidences.append(
+                Evidence(
+                    evidence_id=evidence_id,
+                    kind="chunk",
+                    ref_id=row["id"],
+                    text=row["content"],
+                    source=source,
+                    heading_path=row["heading_path"],
+                    parent_id=row["parent_id"],
+                    block_id=row["block_id"],
+                    revision=row["revision"],
+                )
             )
-            for r in rows
-        ]
+        return evidences
 
     # ---- graph: 写入 ----
     async def upsert_node(self, node_id: str, entity: Entity, source_chunk: str) -> None:

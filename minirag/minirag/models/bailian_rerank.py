@@ -62,7 +62,7 @@ class BailianRerankModel:
                     resp = await client.post(self._url, json=body, headers=self._headers)
                     resp.raise_for_status()
                     return resp.json()
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - provider errors are retried uniformly
                 last_err = err
                 await asyncio.sleep(2**attempt)
         raise RuntimeError(f"BailianRerankModel.rerank 失败: {last_err}")

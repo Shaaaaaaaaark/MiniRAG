@@ -55,6 +55,8 @@ class MilvusStore:
         self._ensure_chunk_collection(client)
         self._ensure_dense_collection(client, ENTITY_COLLECTION)
         self._ensure_dense_collection(client, RELATION_COLLECTION)
+        for collection in (CHUNK_COLLECTION, ENTITY_COLLECTION, RELATION_COLLECTION):
+            self._load_collection(collection)
 
     def _ensure_database(self) -> None:
         from pymilvus import MilvusClient
@@ -119,6 +121,11 @@ class MilvusStore:
         index_params.add_index(field_name="dense", **_DENSE_INDEX)
         client.create_collection(name, schema=schema, index_params=index_params)
 
+    def _load_collection(self, collection: str) -> None:
+        if not self.client.has_collection(collection):
+            raise ValueError(f"Milvus collection 不存在: {collection}")
+        self.client.load_collection(collection)
+
     # ------------------------------------------------------------------ #
     # 写入
     # ------------------------------------------------------------------ #
@@ -159,7 +166,28 @@ class MilvusStore:
     async def _upsert(self, collection: str, rows: list[dict]) -> None:
         if not rows:
             return
+        await asyncio.to_thread(self._load_collection, collection)
         await asyncio.to_thread(self.client.upsert, collection_name=collection, data=rows)
+
+    async def delete_chunk_vectors(self, ids: list[str]) -> None:
+        await self._delete(CHUNK_COLLECTION, ids)
+
+    async def delete_entity_vectors(self, ids: list[str]) -> None:
+        await self._delete(ENTITY_COLLECTION, ids)
+
+    async def delete_relation_vectors(self, ids: list[str]) -> None:
+        await self._delete(RELATION_COLLECTION, ids)
+
+    async def _delete(self, collection: str, ids: list[str]) -> None:
+        if not ids:
+            return
+        await asyncio.to_thread(self._load_collection, collection)
+        await asyncio.to_thread(self.client.delete, collection_name=collection, pks=ids)
+
+    async def flush(self) -> None:
+        """Make all completed index writes visible before reporting success."""
+        for collection in (CHUNK_COLLECTION, ENTITY_COLLECTION, RELATION_COLLECTION):
+            await asyncio.to_thread(self.client.flush, collection_name=collection)
 
     # ------------------------------------------------------------------ #
     # 检索
@@ -173,6 +201,7 @@ class MilvusStore:
     async def _dense_search(
         self, collection: str, kind: str, query_vec: list[float], top_k: int
     ) -> list[Evidence]:
+        await asyncio.to_thread(self._load_collection, collection)
         hits = await asyncio.to_thread(
             self.client.search,
             collection_name=collection,
@@ -197,6 +226,7 @@ class MilvusStore:
     ) -> list[Evidence]:
         from pymilvus import AnnSearchRequest, RRFRanker
 
+        self._load_collection(CHUNK_COLLECTION)
         dense_req = AnnSearchRequest(
             data=[query_vec],
             anns_field="dense",

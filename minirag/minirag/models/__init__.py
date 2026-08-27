@@ -10,9 +10,9 @@ from minirag.models.factory import (
 __all__ = [
     "ChatModel",
     "EmbeddingModel",
+    "ModelBundle",
     "RerankModel",
     "RerankResult",
-    "ModelBundle",
     "build_chat_model",
     "build_embedding_model",
     "build_rerank_model",

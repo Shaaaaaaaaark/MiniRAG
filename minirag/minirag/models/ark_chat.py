@@ -23,8 +23,7 @@ def _strip_code_fence(content: str) -> str:
     if "\n" in text:
         text = text.split("\n", 1)[1]
     text = text.rstrip()
-    if text.endswith("```"):
-        text = text[:-3]
+    text = text.removesuffix("```")
     return text.strip()
 
 
@@ -71,7 +70,7 @@ class ArkChatModel:
                 return response_model.model_validate_json(_strip_code_fence(content))
             except (json.JSONDecodeError, ValueError) as err:
                 last_err = err
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - provider errors are retried uniformly
                 last_err = err
                 await asyncio.sleep(2**attempt)
         raise RuntimeError(

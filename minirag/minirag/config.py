@@ -44,6 +44,13 @@ class PostgresCfg(BaseModel):
     dsn: str
 
 
+class FeishuCfg(BaseModel):
+    enabled: bool = False
+    cli_path: str = "lark-cli"
+    identity: str = "user"
+    timeout_seconds: float = 120.0
+
+
 class RetrievalCfg(BaseModel):
     """检索固定参数（分层召回 + 分层 token 预算）。"""
 
@@ -65,8 +72,10 @@ class Settings(BaseModel):
     rerank: ModelCfg
     milvus: MilvusCfg
     postgres: PostgresCfg
+    feishu: FeishuCfg = Field(default_factory=FeishuCfg)
     retrieval: RetrievalCfg = Field(default_factory=RetrievalCfg)
     chunker: str = "header_token"
+    graph_enabled: bool = False
 
 
 def _expand_env(value: Any) -> Any:
@@ -90,18 +99,22 @@ def _expand_env(value: Any) -> Any:
 def load_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     """从 YAML 加载配置。
 
-    默认优先读取包同级目录的 config.yaml；公开仓库不提交真实配置，
-    因此缺省回退到 config.example.yaml。
+    默认读取包同级目录的 config.yaml；公开仓库只提交 config.example.yaml 模板。
     """
     import yaml
+    from dotenv import load_dotenv
 
     if config_path:
         path = Path(config_path)
     else:
         config_dir = Path(__file__).resolve().parents[1]
         path = config_dir / "config.yaml"
-        if not path.exists():
-            path = config_dir / "config.example.yaml"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"MiniRAG 配置文件不存在: {path}。请复制 config.example.yaml 为 config.yaml，"
+            "或通过 MINIRAG_CONFIG 指定配置文件。"
+        )
+    load_dotenv(path.parent / ".env", override=False)
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return Settings.model_validate(_expand_env(raw))
 

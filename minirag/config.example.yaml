@@ -30,6 +30,16 @@ milvus:
 postgres:
   dsn: ${POSTGRES_DSN:-postgresql://oncall:oncall@localhost:5432/oncall}
 
+feishu:
+  # JIT routes use the locally authenticated lark-cli identity.
+  enabled: ${MINIRAG_FEISHU_ENABLED:-false}
+  cli_path: ${MINIRAG_FEISHU_CLI_PATH:-lark-cli}
+  identity: ${MINIRAG_FEISHU_IDENTITY:-user}
+  timeout_seconds: ${MINIRAG_FEISHU_TIMEOUT:-120}
+
+# Optional entity-relation graph. The production baseline uses text retrieval.
+graph_enabled: ${MINIRAG_GRAPH_ENABLED:-false}
+
 retrieval:
   entity_topk: 10
   relation_topk: 10
@@ -37,7 +47,9 @@ retrieval:
   bm25_topk: 20
   rerank_topk: 8
   rrf_k: 60
-  max_rounds: 2
-  chunk_token_budget: 6000
+  chunk_top_k: 8
+  max_entity_tokens: 4000
+  max_relation_tokens: 4000
+  max_total_tokens: 12000
 
-chunker: header_token
+chunker: parent_child
