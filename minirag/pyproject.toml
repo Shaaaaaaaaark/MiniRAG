@@ -21,6 +21,14 @@ dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
 ]
+eval = [
+    "ragas==0.4.3",
+    # Ragas 0.4.3 imports modules removed by langchain-community 0.4.x.
+    "langchain>=0.3,<1.0",
+    "langchain-core>=0.3,<1.0",
+    "langchain-community>=0.3,<0.4",
+    "langchain-openai>=0.3,<1.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -31,7 +31,8 @@ Dense + BM25 混合召回、Rerank、父块回填和引用溯源。系统固定�
 2. 索引失败回滚，服务启动时清理孤立图谱来源。
 3. Reranker 不可用时返回融合排序，不阻断查询。
 4. Embedding 模型或维度变化时必须重建向量索引。
-5. 通过固定测试集评估 `Hit@K`、字符级 Precision/Recall、MRR 和 nDCG。
+5. 固定测试集以 `Hit@K`、字符级 Precision/Recall、MRR 为核心门禁，Ragas
+   语义指标作为补充诊断，详见 [benchmark 方案](../benchmarks/README.md)。
 
 ## 核心算法
 
