@@ -1,0 +1,31 @@
+embedding:
+  model: text-embedding-v4
+  base_url: ${MINIRAG_EMBEDDING_BASE_URL}
+  api_key: ${MINIRAG_EMBEDDING_API_KEY}
+  dimensions: 1024
+  timeout_seconds: 60
+  max_retries: 2
+  batch_size: 10
+
+rerank:
+  model: gte-rerank-v2
+  base_url: ${MINIRAG_RERANK_BASE_URL}
+  api_key: ${MINIRAG_RERANK_API_KEY}
+  timeout_seconds: 60
+  max_retries: 2
+
+milvus:
+  uri: ${MILVUS_URI:-http://localhost:19530}
+  db: oncall
+  collection: langchain_chunks
+
+chunking:
+  parent_tokens: 900
+  parent_overlap: 100
+  child_tokens: 250
+  child_overlap: 40
+
+retrieval:
+  candidate_top_k: 20
+  rrf_k: 60
+  rerank_top_k: 8

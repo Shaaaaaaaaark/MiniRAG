@@ -1,8 +1,4 @@
-"""Milvus 向量存储：三个 Collection（chunk / entity / relation）。
-
-- chunk_vectors：dense + sparse(BM25)，走 hybrid search（RRFRanker）。
-- entity_vectors / relation_vectors：仅 dense。
-- 图关系不入 Milvus，只在 PostgreSQL 图表维护。
+"""Milvus Child Chunk 向量存储。
 
 实现说明：
 - pymilvus 为同步库，所有网络调用统一用 asyncio.to_thread 包裹，避免阻塞事件循环。
@@ -19,8 +15,6 @@ from minirag.config import MilvusCfg
 from minirag.schemas import Evidence, make_evidence_id
 
 CHUNK_COLLECTION = "chunk_vectors"
-ENTITY_COLLECTION = "entity_vectors"
-RELATION_COLLECTION = "relation_vectors"
 
 _DENSE_INDEX = {"index_type": "HNSW", "metric_type": "COSINE", "params": {"M": 16, "efConstruction": 200}}
 _SPARSE_INDEX = {"index_type": "SPARSE_INVERTED_INDEX", "metric_type": "BM25"}
@@ -40,8 +34,13 @@ class MilvusStore:
         return self._client
 
     async def connect(self) -> None:
-        """建立连接并确保库与三个 Collection 存在（幂等）。"""
+        """建立连接并确保 Collection 存在。"""
         await asyncio.to_thread(self._connect_sync)
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await asyncio.to_thread(self._client.close)
+            self._client = None
 
     # ------------------------------------------------------------------ #
     # 连接与建表（同步，运行在线程池）
@@ -53,10 +52,7 @@ class MilvusStore:
         client = MilvusClient(uri=self._cfg.uri, db_name=self._cfg.db)
         self._client = client
         self._ensure_chunk_collection(client)
-        self._ensure_dense_collection(client, ENTITY_COLLECTION)
-        self._ensure_dense_collection(client, RELATION_COLLECTION)
-        for collection in (CHUNK_COLLECTION, ENTITY_COLLECTION, RELATION_COLLECTION):
-            self._load_collection(collection)
+        self._load_collection(CHUNK_COLLECTION)
 
     def _ensure_database(self) -> None:
         from pymilvus import MilvusClient
@@ -105,22 +101,6 @@ class MilvusStore:
         index_params.add_index(field_name="sparse", **_SPARSE_INDEX)
         client.create_collection(CHUNK_COLLECTION, schema=schema, index_params=index_params)
 
-    def _ensure_dense_collection(self, client: Any, name: str) -> None:
-        """entity/relation：id + text + dense。"""
-        from pymilvus import DataType
-
-        if client.has_collection(name):
-            return
-
-        schema = client.create_schema(auto_id=False, enable_dynamic_field=False)
-        schema.add_field("id", DataType.VARCHAR, is_primary=True, max_length=64)
-        schema.add_field("text", DataType.VARCHAR, max_length=_TEXT_MAX_LEN)
-        schema.add_field("dense", DataType.FLOAT_VECTOR, dim=self._dim)
-
-        index_params = client.prepare_index_params()
-        index_params.add_index(field_name="dense", **_DENSE_INDEX)
-        client.create_collection(name, schema=schema, index_params=index_params)
-
     def _load_collection(self, collection: str) -> None:
         if not self.client.has_collection(collection):
             raise ValueError(f"Milvus collection 不存在: {collection}")
@@ -151,18 +131,6 @@ class MilvusStore:
         ]
         await self._upsert(CHUNK_COLLECTION, rows)
 
-    async def upsert_entity_vectors(
-        self, ids: list[str], dense: list[list[float]], texts: list[str]
-    ) -> None:
-        rows = [{"id": ids[i], "text": texts[i], "dense": dense[i]} for i in range(len(ids))]
-        await self._upsert(ENTITY_COLLECTION, rows)
-
-    async def upsert_relation_vectors(
-        self, ids: list[str], dense: list[list[float]], texts: list[str]
-    ) -> None:
-        rows = [{"id": ids[i], "text": texts[i], "dense": dense[i]} for i in range(len(ids))]
-        await self._upsert(RELATION_COLLECTION, rows)
-
     async def _upsert(self, collection: str, rows: list[dict]) -> None:
         if not rows:
             return
@@ -172,12 +140,6 @@ class MilvusStore:
     async def delete_chunk_vectors(self, ids: list[str]) -> None:
         await self._delete(CHUNK_COLLECTION, ids)
 
-    async def delete_entity_vectors(self, ids: list[str]) -> None:
-        await self._delete(ENTITY_COLLECTION, ids)
-
-    async def delete_relation_vectors(self, ids: list[str]) -> None:
-        await self._delete(RELATION_COLLECTION, ids)
-
     async def _delete(self, collection: str, ids: list[str]) -> None:
         if not ids:
             return
@@ -186,43 +148,33 @@ class MilvusStore:
 
     async def flush(self) -> None:
         """Make all completed index writes visible before reporting success."""
-        for collection in (CHUNK_COLLECTION, ENTITY_COLLECTION, RELATION_COLLECTION):
-            await asyncio.to_thread(self.client.flush, collection_name=collection)
-
-    # ------------------------------------------------------------------ #
-    # 检索
-    # ------------------------------------------------------------------ #
-    async def search_entities(self, query_vec: list[float], top_k: int) -> list[Evidence]:
-        return await self._dense_search(ENTITY_COLLECTION, "entity", query_vec, top_k)
-
-    async def search_relations(self, query_vec: list[float], top_k: int) -> list[Evidence]:
-        return await self._dense_search(RELATION_COLLECTION, "relation", query_vec, top_k)
-
-    async def _dense_search(
-        self, collection: str, kind: str, query_vec: list[float], top_k: int
-    ) -> list[Evidence]:
-        await asyncio.to_thread(self._load_collection, collection)
-        hits = await asyncio.to_thread(
-            self.client.search,
-            collection_name=collection,
-            data=[query_vec],
-            anns_field="dense",
-            limit=top_k,
-            search_params={"metric_type": "COSINE"},
-            output_fields=["id", "text"],
-        )
-        return self._to_evidences(kind, hits, source=collection)
+        await asyncio.to_thread(self.client.flush, collection_name=CHUNK_COLLECTION)
 
     async def hybrid_search_chunks(
-        self, query_text: str, query_vec: list[float], dense_k: int, bm25_k: int
+        self,
+        query_text: str,
+        query_vec: list[float],
+        dense_k: int,
+        bm25_k: int,
+        rrf_k: int = 60,
     ) -> list[Evidence]:
         """dense + sparse(BM25) 混合检索，RRFRanker 融合。"""
         return await asyncio.to_thread(
-            self._hybrid_search_sync, query_text, query_vec, dense_k, bm25_k
+            self._hybrid_search_sync,
+            query_text,
+            query_vec,
+            dense_k,
+            bm25_k,
+            rrf_k,
         )
 
     def _hybrid_search_sync(
-        self, query_text: str, query_vec: list[float], dense_k: int, bm25_k: int
+        self,
+        query_text: str,
+        query_vec: list[float],
+        dense_k: int,
+        bm25_k: int,
+        rrf_k: int,
     ) -> list[Evidence]:
         from pymilvus import AnnSearchRequest, RRFRanker
 
@@ -242,7 +194,7 @@ class MilvusStore:
         hits = self.client.hybrid_search(
             collection_name=CHUNK_COLLECTION,
             reqs=[dense_req, sparse_req],
-            ranker=RRFRanker(),
+            ranker=RRFRanker(rrf_k),
             limit=max(dense_k, bm25_k),
             output_fields=["id", "text", "source", "heading_path"],
         )
@@ -251,31 +203,13 @@ class MilvusStore:
     # ------------------------------------------------------------------ #
     # 结果映射
     # ------------------------------------------------------------------ #
-    def _to_evidences(self, kind: str, hits: Any, source: str) -> list[Evidence]:
-        out: list[Evidence] = []
-        for hit in self._first_group(hits):
-            entity = hit.get("entity", {})
-            ref_id = entity.get("id", hit.get("id", ""))
-            out.append(
-                Evidence(
-                    evidence_id=make_evidence_id(kind, ref_id),
-                    kind=kind,  # type: ignore[arg-type]
-                    ref_id=ref_id,
-                    text=entity.get("text", ""),
-                    source=source,
-                    score=float(hit.get("distance", 0.0)),
-                )
-            )
-        return out
-
     def _to_chunk_evidences(self, hits: Any) -> list[Evidence]:
         out: list[Evidence] = []
         for hit in self._first_group(hits):
             entity = hit.get("entity", {})
             out.append(
                 Evidence(
-                    evidence_id=make_evidence_id("chunk", entity.get("id", "")),
-                    kind="chunk",
+                    evidence_id=make_evidence_id(entity.get("id", "")),
                     ref_id=entity.get("id", ""),
                     text=entity.get("text", ""),
                     source=entity.get("source", ""),

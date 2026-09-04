@@ -1,12 +1,8 @@
 import pytest
+
 from minirag.config import RetrievalCfg
 from minirag.core.retrieve import Retriever
 from minirag.schemas import Evidence, QueryParam
-
-
-class FailChat:
-    async def generate(self, *args, **kwargs):
-        raise AssertionError("naive mode must not call chat")
 
 
 class FakeEmbedding:
@@ -22,13 +18,12 @@ class FakeRerank:
 
 
 class FakeModels:
-    chat = FailChat()
     embedding = FakeEmbedding()
     rerank = FakeRerank()
 
 
 class FakeMilvus:
-    async def hybrid_search_chunks(self, query_text, query_vec, dense_k, bm25_k):
+    async def hybrid_search_chunks(self, query_text, query_vec, dense_k, bm25_k, rrf_k):
         return []
 
 
@@ -38,7 +33,7 @@ class FakePg:
 
 
 @pytest.mark.asyncio
-async def test_naive_mode_does_not_extract_keywords() -> None:
+async def test_empty_recall_returns_empty_result() -> None:
     retriever = Retriever(
         RetrievalCfg(),
         FakeModels(),
@@ -48,11 +43,10 @@ async def test_naive_mode_does_not_extract_keywords() -> None:
 
     result = await retriever.retrieve(
         "BGP session down",
-        QueryParam(mode="naive", enable_rerank=False),
+        QueryParam(enable_rerank=False),
     )
 
-    assert result.keywords.high_level == []
-    assert result.keywords.low_level == []
+    assert result.chunks == []
 
 
 class FailRerank:
@@ -65,7 +59,7 @@ class ModelsWithFailingRerank(FakeModels):
 
 
 class MilvusWithHit:
-    async def hybrid_search_chunks(self, query_text, query_vec, dense_k, bm25_k):
+    async def hybrid_search_chunks(self, query_text, query_vec, dense_k, bm25_k, rrf_k):
         return [
             Evidence(
                 evidence_id="child-evidence",

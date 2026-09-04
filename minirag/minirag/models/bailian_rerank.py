@@ -45,7 +45,10 @@ class BailianRerankModel:
         body = {
             "model": self._cfg.model,
             "input": {"query": query, "documents": documents},
-            "parameters": {"top_n": top_k, "return_documents": False},
+            "parameters": {
+                "top_n": min(top_k, len(documents)),
+                "return_documents": False,
+            },
         }
         data = await self._post(body)
         results = data.get("output", {}).get("results", [])
@@ -64,5 +67,6 @@ class BailianRerankModel:
                     return resp.json()
             except Exception as err:  # noqa: BLE001 - provider errors are retried uniformly
                 last_err = err
-                await asyncio.sleep(2**attempt)
+                if attempt < self._cfg.max_retries:
+                    await asyncio.sleep(2**attempt)
         raise RuntimeError(f"BailianRerankModel.rerank 失败: {last_err}")

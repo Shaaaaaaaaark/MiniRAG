@@ -1,6 +1,7 @@
 # Public template. Copy to config.yaml for local use, or set MINIRAG_CONFIG.
 # Keep real API keys, private endpoint URLs, and internal model IDs out of Git.
 
+# Optional: only used as the Ragas judge; online retrieval does not call Chat.
 chat:
   provider: ${MINIRAG_CHAT_PROVIDER:-openai}
   model: ${MINIRAG_CHAT_MODEL:-gpt-4o-mini}
@@ -37,19 +38,10 @@ feishu:
   identity: ${MINIRAG_FEISHU_IDENTITY:-user}
   timeout_seconds: ${MINIRAG_FEISHU_TIMEOUT:-120}
 
-# Optional entity-relation graph. The production baseline uses text retrieval.
-graph_enabled: ${MINIRAG_GRAPH_ENABLED:-false}
-
 retrieval:
-  entity_topk: 10
-  relation_topk: 10
   dense_topk: 20
   bm25_topk: 20
   rerank_topk: 8
   rrf_k: 60
   chunk_top_k: 8
-  max_entity_tokens: 4000
-  max_relation_tokens: 4000
   max_total_tokens: 12000
-
-chunker: parent_child

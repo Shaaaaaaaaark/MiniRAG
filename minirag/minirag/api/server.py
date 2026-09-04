@@ -9,20 +9,14 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from minirag.integrations.feishu import FeishuCliError, find_feishu_document_url
 from minirag.rag import MiniRAG
-from minirag.schemas import (
-    ChunkingStrategy,
-    DocumentInput,
-    Evidence,
-    Keywords,
-    QueryMode,
-    RetrievalResult,
-)
+from minirag.schemas import DocumentInput, Evidence, QueryParam, RetrievalResult
 
 
 class DocumentRequest(BaseModel):
@@ -31,16 +25,14 @@ class DocumentRequest(BaseModel):
     text: str | None = None
     revision: str | None = None
     title: str | None = None
-    chunking_strategy: ChunkingStrategy | None = None
-    gleaning: bool = False
 
 
 class RetrieveRequest(BaseModel):
-    query: str
+    query: str = Field(min_length=1)
     source_url: str | None = None
-    mode: QueryMode = "text"
-    top_k: int | None = None
-    chunk_top_k: int | None = None
+    mode: Literal["text"] = "text"
+    top_k: int | None = Field(default=None, ge=1, le=50)
+    chunk_top_k: int | None = Field(default=None, ge=1, le=50)
     enable_rerank: bool = True
 
 
@@ -52,9 +44,6 @@ class FeishuRetrieveRequest(BaseModel):
 
 
 class RetrieveResponse(BaseModel):
-    keywords: Keywords = Field(default_factory=Keywords)
-    entities: list[Evidence] = Field(default_factory=list)
-    relationships: list[Evidence] = Field(default_factory=list)
     chunks: list[Evidence] = Field(default_factory=list)
     count: int = 0
 
@@ -87,7 +76,6 @@ def create_app() -> FastAPI:
         rag = get_rag()
         return {
             "status": "ok",
-            "chat_model": rag.settings.chat.model,
             "embedding_model": rag.settings.embedding.model,
             "rerank_model": rag.settings.rerank.model,
             "ready": True,
@@ -102,14 +90,11 @@ def create_app() -> FastAPI:
             text=req.text,
             revision=req.revision,
             title=req.title,
-            chunking_strategy=req.chunking_strategy,
         )
-        return await rag.index(doc, gleaning=req.gleaning)
+        return await rag.index(doc)
 
     @app.post("/retrieve", response_model=RetrieveResponse)
     async def retrieve(req: RetrieveRequest) -> RetrieveResponse:
-        from minirag.schemas import QueryParam
-
         rag = get_rag()
         source_url = req.source_url or find_feishu_document_url(req.query)
         if source_url:
@@ -127,9 +112,7 @@ def create_app() -> FastAPI:
             return _retrieval_response(result)
 
         param = QueryParam(
-            mode=req.mode,
-            top_k=req.top_k,
-            chunk_top_k=req.chunk_top_k,
+            top_k=req.chunk_top_k or req.top_k,
             enable_rerank=req.enable_rerank,
         )
         result = await rag.retrieve(req.query, param)
@@ -154,11 +137,8 @@ def create_app() -> FastAPI:
 
 def _retrieval_response(result: RetrievalResult) -> RetrieveResponse:
     return RetrieveResponse(
-        keywords=result.keywords,
-        entities=result.entities,
-        relationships=result.relationships,
         chunks=result.chunks,
-        count=len(result.all_evidences),
+        count=len(result.chunks),
     )
 
 

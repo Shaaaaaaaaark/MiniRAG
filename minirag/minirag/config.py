@@ -52,30 +52,25 @@ class FeishuCfg(BaseModel):
 
 
 class RetrievalCfg(BaseModel):
-    """检索固定参数（分层召回 + 分层 token 预算）。"""
+    """文本混合检索参数。"""
 
-    entity_topk: int = 10
-    relation_topk: int = 10
     dense_topk: int = 20
     bm25_topk: int = 20
     rerank_topk: int = 8
     rrf_k: int = 60
     chunk_top_k: int = 8
-    max_entity_tokens: int = 4000
-    max_relation_tokens: int = 4000
     max_total_tokens: int = 12000
 
 
 class Settings(BaseModel):
-    chat: ModelCfg
+    # 仅 benchmarks/run_ragas.py 使用；在线检索不调用 Chat 模型。
+    chat: ModelCfg | None = None
     embedding: ModelCfg
     rerank: ModelCfg
     milvus: MilvusCfg
     postgres: PostgresCfg
     feishu: FeishuCfg = Field(default_factory=FeishuCfg)
     retrieval: RetrievalCfg = Field(default_factory=RetrievalCfg)
-    chunker: str = "header_token"
-    graph_enabled: bool = False
 
 
 def _expand_env(value: Any) -> Any:

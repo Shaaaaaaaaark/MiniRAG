@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from minirag.integrations.feishu import FeishuDocument, FeishuDriveItem
 from minirag.integrations.feishu_sync import FeishuFolderSync
 from minirag.schemas import Block

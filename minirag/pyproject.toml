@@ -1,7 +1,7 @@
 [project]
 name = "minirag"
 version = "0.1.0"
-description = "精简轻量版 LightRAG：双层图谱检索内核（Milvus + PostgreSQL），检索即服务"
+description = "轻量 Parent-Child 混合检索服务（Milvus + PostgreSQL）"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
@@ -20,6 +20,7 @@ dependencies = [
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
+    "ruff>=0.14,<1",
 ]
 eval = [
     "ragas==0.4.3",

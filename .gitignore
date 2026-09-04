@@ -32,6 +32,7 @@ benchmarks/private/
 
 # 本地运行配置：仓库只提交 minirag/config.example.yaml
 minirag/config.yaml
+minirag-langchain/config.yaml
 
 # 敏感信息：真实密钥（保留 .env.example 模板）
 .env

@@ -1,6 +1,7 @@
 """Just-in-time retrieval from one explicitly referenced Feishu document."""
 from __future__ import annotations
 
+import logging
 import math
 
 from minirag.core.chunker import ParentChildChunker, parse_document
@@ -9,12 +10,13 @@ from minirag.schemas import (
     Chunk,
     DocumentInput,
     Evidence,
-    Keywords,
     RetrievalResult,
     make_evidence_id,
 )
 
 from .feishu import FeishuCliClient
+
+_logger = logging.getLogger(__name__)
 
 
 class FeishuJitRetriever:
@@ -39,7 +41,6 @@ class FeishuJitRetriever:
                 revision=document.revision_id,
                 title=document.title,
                 blocks=document.blocks,
-                chunking_strategy="parent_child",
             )
         )
         chunks = self._chunker.split(parsed)
@@ -67,24 +68,24 @@ class FeishuJitRetriever:
             candidates,
         )
         if enable_rerank and query.strip() and evidences:
-            rerank_results = await self._models.rerank.rerank(
-                query,
-                [evidence.text for evidence in evidences],
-                min(top_k, len(evidences)),
-            )
-            reranked: list[Evidence] = []
-            for result in rerank_results:
-                if 0 <= result.index < len(evidences):
-                    evidence = evidences[result.index]
-                    evidence.score = result.score
-                    reranked.append(evidence)
-            if reranked:
-                evidences = reranked
+            try:
+                rerank_results = await self._models.rerank.rerank(
+                    query,
+                    [evidence.text for evidence in evidences],
+                    min(top_k, len(evidences)),
+                )
+                reranked: list[Evidence] = []
+                for result in rerank_results:
+                    if 0 <= result.index < len(evidences):
+                        evidence = evidences[result.index]
+                        evidence.score = result.score
+                        reranked.append(evidence)
+                if reranked:
+                    evidences = reranked
+            except Exception as error:  # noqa: BLE001 - rerank is optional
+                _logger.warning("飞书 JIT rerank 失败，保留向量排序：%s", error)
 
-        return RetrievalResult(
-            keywords=Keywords(),
-            chunks=evidences[:top_k],
-        )
+        return RetrievalResult(chunks=evidences[:top_k])
 
     @staticmethod
     def _parent_evidences(
@@ -96,7 +97,7 @@ class FeishuJitRetriever:
         seen: set[str] = set()
         for chunk, score in candidates:
             parent_key = chunk.parent_id or chunk.id
-            evidence_id = make_evidence_id("chunk", parent_key)
+            evidence_id = make_evidence_id(parent_key)
             if evidence_id in seen:
                 continue
             seen.add(evidence_id)
@@ -106,7 +107,6 @@ class FeishuJitRetriever:
             evidences.append(
                 Evidence(
                     evidence_id=evidence_id,
-                    kind="chunk",
                     ref_id=chunk.id,
                     text=chunk.parent_content or chunk.content,
                     source=source,

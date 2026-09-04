@@ -10,6 +10,7 @@ import math
 import os
 import statistics
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -147,7 +148,7 @@ async def retrieve(
 
 
 async def run(args: argparse.Namespace) -> int:
-    ragas_home = _ROOT / "benchmarks" / "private" / ".ragas-home"
+    ragas_home = Path(tempfile.gettempdir()) / "minirag-ragas-home"
     ragas_home.mkdir(parents=True, exist_ok=True)
     os.environ["HOME"] = str(ragas_home)
     os.environ["RAGAS_DO_NOT_TRACK"] = "true"
@@ -168,12 +169,15 @@ async def run(args: argparse.Namespace) -> int:
         limit=args.limit,
     )
     settings = load_settings(args.config)
+    if settings.chat is None:
+        raise ValueError("Ragas 评测需要在配置中提供 chat Judge 模型")
+    judge = settings.chat
     judge_client = AsyncOpenAI(
-        api_key=settings.chat.api_key,
-        base_url=settings.chat.base_url,
+        api_key=judge.api_key,
+        base_url=judge.base_url,
         timeout=args.judge_timeout,
     )
-    judge_llm = llm_factory(settings.chat.model, client=judge_client)
+    judge_llm = llm_factory(judge.model, client=judge_client)
     context_precision = ContextPrecision(llm=judge_llm)
     context_recall = ContextRecall(llm=judge_llm)
 
@@ -300,8 +304,8 @@ async def run(args: argparse.Namespace) -> int:
             "top_k": args.top_k,
             "rerank_enabled": not args.disable_rerank,
             "ragas_version": importlib.metadata.version("ragas"),
-            "judge_provider": settings.chat.provider,
-            "judge_model": settings.chat.model,
+            "judge_provider": judge.provider,
+            "judge_model": judge.model,
             "judge_timeout_seconds": args.judge_timeout,
             "ragas_tracking_disabled": True,
         },

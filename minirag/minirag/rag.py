@@ -1,10 +1,10 @@
-"""MiniRAG 门面：装配存储/模型/索引/检索，提供索引与检索两个入口。
+"""MiniRAG 门面：装配模型、存储、索引与检索。
 
 用法：
     rag = MiniRAG()          # 读取 config.yaml，或使用 MINIRAG_CONFIG 指定路径
     await rag.startup()
     await rag.index(DocumentInput(source="corpus/x.md"))
-    result = await rag.retrieve("BGP 中断如何处理", QueryParam(mode="text"))
+    result = await rag.retrieve("BGP 中断如何处理", QueryParam(top_k=8))
     await rag.shutdown()
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ class MiniRAG:
         self.models = ModelBundle(self.settings)
         self.pg = PgStore(self.settings.postgres)
         self.milvus = MilvusStore(self.settings.milvus, dim=self.models.embedding.dimensions)
-        self.indexer = Indexer(self.settings, self.models, self.pg, self.milvus)
+        self.indexer = Indexer(self.models, self.pg, self.milvus)
         self.retriever = Retriever(self.settings.retrieval, self.models, self.pg, self.milvus)
         self.feishu_client: FeishuCliClient | None = None
         self.feishu_jit: FeishuJitRetriever | None = None
@@ -43,17 +43,15 @@ class MiniRAG:
     async def startup(self) -> None:
         await self.pg.connect()
         await self.milvus.connect()
-        deleted_node_ids, deleted_edge_ids = await self.pg.prune_orphan_graph_sources()
-        await self.milvus.delete_entity_vectors(deleted_node_ids)
-        await self.milvus.delete_relation_vectors(deleted_edge_ids)
-        if deleted_node_ids or deleted_edge_ids:
-            await self.milvus.flush()
 
     async def shutdown(self) -> None:
-        await self.pg.close()
+        try:
+            await self.pg.close()
+        finally:
+            await self.milvus.close()
 
-    async def index(self, doc_input: DocumentInput, gleaning: bool = False) -> IndexReport:
-        return await self.indexer.index_document(doc_input, gleaning=gleaning)
+    async def index(self, doc_input: DocumentInput) -> IndexReport:
+        return await self.indexer.index_document(doc_input)
 
     async def delete_document(self, source: str, source_id: str | None = None) -> None:
         await self.indexer.delete_document(source, source_id)

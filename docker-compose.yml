@@ -1,6 +1,6 @@
 # 统一编排：minirag 检索服务 + Milvus（etcd/minio/standalone/attu）+ PostgreSQL
 # 用法：
-#   export MINIRAG_CHAT_API_KEY=... MINIRAG_EMBEDDING_API_KEY=... MINIRAG_RERANK_API_KEY=...
+#   export MINIRAG_EMBEDDING_API_KEY=... MINIRAG_RERANK_API_KEY=...
 #   docker compose up -d --build
 services:
   # ---------------- 应用 ----------------
@@ -13,10 +13,6 @@ services:
       - "8090:8090"
     environment:
       # 模型配置从宿主环境注入；真实值放 .env 或私有 config.yaml，不提交到 Git
-      MINIRAG_CHAT_PROVIDER: ${MINIRAG_CHAT_PROVIDER:-openai}
-      MINIRAG_CHAT_MODEL: ${MINIRAG_CHAT_MODEL:-gpt-4o-mini}
-      MINIRAG_CHAT_BASE_URL: ${MINIRAG_CHAT_BASE_URL:-https://api.openai.com/v1}
-      MINIRAG_CHAT_API_KEY: ${MINIRAG_CHAT_API_KEY:-}
       MINIRAG_EMBEDDING_PROVIDER: ${MINIRAG_EMBEDDING_PROVIDER:-openai}
       MINIRAG_EMBEDDING_MODEL: ${MINIRAG_EMBEDDING_MODEL:-text-embedding-3-small}
       MINIRAG_EMBEDDING_BASE_URL: ${MINIRAG_EMBEDDING_BASE_URL:-https://api.openai.com/v1}
@@ -31,7 +27,6 @@ services:
       MINIRAG_FEISHU_CLI_PATH: ${MINIRAG_FEISHU_CLI_PATH:-lark-cli}
       MINIRAG_FEISHU_IDENTITY: ${MINIRAG_FEISHU_IDENTITY:-user}
       MINIRAG_FEISHU_TIMEOUT: ${MINIRAG_FEISHU_TIMEOUT:-120}
-      MINIRAG_GRAPH_ENABLED: ${MINIRAG_GRAPH_ENABLED:-false}
       # 存储地址指向 compose 网络内的服务名
       MILVUS_URI: http://standalone:19530
       POSTGRES_DSN: postgresql://oncall:oncall@postgres:5432/oncall

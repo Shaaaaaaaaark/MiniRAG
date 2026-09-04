@@ -47,7 +47,6 @@ class FeishuFolderSync:
         rag: MiniRAG | None = None,
         recursive: bool = True,
         prune: bool = False,
-        gleaning: bool = False,
     ) -> FeishuSyncReport:
         report = FeishuSyncReport()
         manifest = self._load_manifest()
@@ -100,9 +99,7 @@ class FeishuFolderSync:
                             revision=document.revision_id,
                             title=document.title,
                             blocks=document.blocks,
-                            chunking_strategy="parent_child",
                         ),
-                        gleaning=gleaning,
                     )
                     indexed_revision = document.revision_id
                     report.indexed += 1

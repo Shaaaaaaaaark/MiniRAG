@@ -38,7 +38,6 @@ async def run(args: argparse.Namespace) -> int:
             rag=rag,
             recursive=not args.no_recursive,
             prune=args.prune,
-            gleaning=args.gleaning,
         )
     finally:
         if rag is not None:
@@ -74,11 +73,6 @@ def main() -> int:
         "--prune",
         action="store_true",
         help="Remove documents no longer present in the folder",
-    )
-    parser.add_argument(
-        "--gleaning",
-        action="store_true",
-        help="Enable one extra entity/relation extraction pass",
     )
     parser.add_argument(
         "--no-recursive",

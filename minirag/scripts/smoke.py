@@ -5,8 +5,8 @@
   # 索引一篇语料
   python scripts/smoke.py index /path/to/document.md
 
-  # 检索（默认 text 模式）
-  python scripts/smoke.py retrieve "BGP 中断如何处理" --mode text --top-k 8
+  # 检索
+  python scripts/smoke.py retrieve "BGP 中断如何处理" --top-k 8
 
 需要：可用的 Milvus 与 PostgreSQL；模型 Key 经环境变量注入（见 config.yaml）。
 """
@@ -30,10 +30,7 @@ async def cmd_index(args: argparse.Namespace) -> int:
     await rag.startup()
     try:
         report = await rag.index(DocumentInput(source=args.path))
-        print(
-            f"索引完成 doc={report.document_id} "
-            f"chunks={report.chunks} entities={report.entities} relations={report.relations}"
-        )
+        print(f"索引完成 doc={report.document_id} chunks={report.chunks}")
         return 0 if report.chunks > 0 else 1
     finally:
         await rag.shutdown()
@@ -43,20 +40,12 @@ async def cmd_retrieve(args: argparse.Namespace) -> int:
     rag = MiniRAG()
     await rag.startup()
     try:
-        param = QueryParam(mode=args.mode, top_k=args.top_k)
+        param = QueryParam(top_k=args.top_k)
         result = await rag.retrieve(args.query, param)
-        kw = result.keywords
-        print(f"模式={args.mode}  关键词 high={kw.high_level} low={kw.low_level}")
-        print(f"实体 {len(result.entities)} | 关系 {len(result.relationships)} | chunk {len(result.chunks)}\n")
-        for group_name, evs in (
-            ("实体", result.entities),
-            ("关系", result.relationships),
-            ("chunk", result.chunks),
-        ):
-            for ev in evs:
-                preview = " ".join(ev.text.split())[:80]
-                print(f"[{group_name}] score={ev.score:.4f} {ev.evidence_id}  {preview}")
-        return 0 if result.all_evidences else 1
+        for evidence in result.chunks:
+            preview = " ".join(evidence.text.split())[:80]
+            print(f"score={evidence.score:.4f} {evidence.evidence_id}  {preview}")
+        return 0 if result.chunks else 1
     finally:
         await rag.shutdown()
 
@@ -70,11 +59,6 @@ def main() -> int:
 
     p_ret = sub.add_parser("retrieve", help="检索证据")
     p_ret.add_argument("query", help="查询问题")
-    p_ret.add_argument(
-        "--mode",
-        default="text",
-        choices=["text", "local", "global", "hybrid", "mix", "naive"],
-    )
     p_ret.add_argument("--top-k", type=int, default=None)
 
     args = parser.parse_args()

@@ -44,5 +44,6 @@ class BailianEmbeddingModel:
                 return [item.embedding for item in resp.data]
             except Exception as err:  # noqa: BLE001 - provider errors are retried uniformly
                 last_err = err
-                await asyncio.sleep(2**attempt)
+                if attempt < self._cfg.max_retries:
+                    await asyncio.sleep(2**attempt)
         raise RuntimeError(f"BailianEmbeddingModel.embed 失败: {last_err}")

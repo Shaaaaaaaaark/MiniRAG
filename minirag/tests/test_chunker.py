@@ -1,5 +1,4 @@
 from minirag.core.chunker import ParentChildChunker, document_id, parse_document
-from minirag.core.index import _graph_extraction_chunks
 from minirag.core.tokenizer import split_by_token_windows
 from minirag.schemas import Block, DocumentInput
 
@@ -62,27 +61,3 @@ def test_token_windows_do_not_emit_redundant_tail() -> None:
     windows = split_by_token_windows(text, size=60, overlap=10)
 
     assert len(windows) == 1
-
-
-def test_graph_extraction_uses_each_parent_once() -> None:
-    document = parse_document(
-        DocumentInput(
-            source="doc",
-            title="Doc",
-            blocks=[
-                Block(type="heading", text="Section", level=1),
-                Block(type="paragraph", text="content " * 300, block_id="p1"),
-            ],
-        )
-    )
-    children = ParentChildChunker(
-        parent_tokens=180,
-        child_tokens=50,
-        child_overlap=10,
-    ).split(document)
-
-    extraction_chunks = _graph_extraction_chunks(children)
-
-    assert len(children) > len(extraction_chunks)
-    assert len(extraction_chunks) == len({chunk.parent_id for chunk in children})
-    assert all(chunk.content == chunk.parent_content for chunk in extraction_chunks)

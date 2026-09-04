@@ -1,18 +1,12 @@
-"""检索编排（LightRAG 内核）：
-
-双层关键词抽取 → 按模式召回(entity/relation/chunk) → chunk rerank
-→ 分层 token 预算截断(实体/关系/chunk 各限额) → 只返回结构化证据。
-"""
+"""文本检索编排：Dense + BM25 + RRF → Parent 回填 → Rerank。"""
 from __future__ import annotations
 
 import logging
 
 from minirag.config import RetrievalCfg
-from minirag.core import keywords as kw_mod
-from minirag.core.fusion_retrieval import apply_rerank, take_within_budget
-from minirag.core.modes import perform_search
+from minirag.core.ranking import apply_rerank, take_within_budget
 from minirag.models.factory import ModelBundle
-from minirag.schemas import Evidence, Keywords, QueryParam, RetrievalResult
+from minirag.schemas import Evidence, QueryParam, RetrievalResult
 from minirag.storage.milvus_store import MilvusStore
 from minirag.storage.pg_store import PgStore
 
@@ -28,52 +22,29 @@ class Retriever:
 
     async def retrieve(self, query: str, param: QueryParam | None = None) -> RetrievalResult:
         param = param or QueryParam()
-        cfg = self._effective_cfg(param)
-
-        if param.mode in {"text", "naive"}:
-            kw = Keywords()
-        else:
-            kw = await kw_mod.extract_keywords(query, self._models.chat)
-
-        recall = await perform_search(
-            param.mode, query, kw, cfg, self._models, self._milvus, self._pg
+        top_k = param.top_k or self._cfg.chunk_top_k
+        (query_vector,) = await self._models.embedding.embed([query])
+        hits = await self._milvus.hybrid_search_chunks(
+            query,
+            query_vector,
+            self._cfg.dense_topk,
+            self._cfg.bm25_topk,
+            self._cfg.rrf_k,
         )
-
-        # chunk 走 rerank（实体/关系已由图 rank 排序）
-        chunks = recall.chunks
+        chunks = await self._pg.chunks_by_ids([hit.ref_id for hit in hits])
+        scores = {hit.ref_id: hit.score for hit in hits}
+        for evidence in chunks:
+            evidence.score = scores.get(evidence.ref_id, 0.0)
         if param.enable_rerank and chunks:
-            chunks = await self._rerank(query, chunks, cfg.rerank_topk)
-
-        # 分层 token 预算截断
-        entities = take_within_budget(recall.entities, cfg.max_entity_tokens)
-        relationships = take_within_budget(recall.relationships, cfg.max_relation_tokens)
-        # chunk 预算 = 总预算扣除实体/关系已用（简化官方动态余量）
-        used = sum(len(e.text) for e in entities) + sum(len(r.text) for r in relationships)
-        chunk_budget = max(cfg.max_total_tokens - used // 4, cfg.max_total_tokens // 3)
-        chunks = take_within_budget(chunks, chunk_budget)
-        if param.chunk_top_k is not None:
-            chunks = chunks[: param.chunk_top_k]
-
+            chunks = await self._rerank(
+                query,
+                chunks,
+                max(top_k, self._cfg.rerank_topk),
+            )
+        token_budget = param.max_total_tokens or self._cfg.max_total_tokens
         return RetrievalResult(
-            keywords=kw,
-            entities=entities,
-            relationships=relationships,
-            chunks=chunks,
+            chunks=take_within_budget(chunks, token_budget)[:top_k],
         )
-
-    def _effective_cfg(self, param: QueryParam) -> RetrievalCfg:
-        """用 QueryParam 覆盖 config 默认值，得到本次生效参数。"""
-        data = self._cfg.model_dump()
-        if param.top_k is not None:
-            data["entity_topk"] = param.top_k
-            data["relation_topk"] = param.top_k
-        if param.max_entity_tokens is not None:
-            data["max_entity_tokens"] = param.max_entity_tokens
-        if param.max_relation_tokens is not None:
-            data["max_relation_tokens"] = param.max_relation_tokens
-        if param.max_total_tokens is not None:
-            data["max_total_tokens"] = param.max_total_tokens
-        return RetrievalCfg.model_validate(data)
 
     async def _rerank(self, query: str, chunks: list[Evidence], top_k: int) -> list[Evidence]:
         try:

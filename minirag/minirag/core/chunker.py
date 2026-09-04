@@ -29,6 +29,12 @@ def _parent_id(document_id: str, ord_: int) -> str:
     return "p_" + hashlib.sha1(f"{document_id}:parent:{ord_}".encode()).hexdigest()[:16]
 
 
+def _push_heading(stack: list[str], block: Block) -> None:
+    level = block.level or (len(stack) + 1)
+    del stack[level - 1 :]
+    stack.append(block.text.strip())
+
+
 def parse_document(doc_input: DocumentInput) -> ParsedDocument:
     """解析 Markdown/TXT 为 Block 序列。text 优先，否则按 source 路径读取。"""
     if doc_input.blocks is not None:
@@ -67,100 +73,6 @@ def parse_document(doc_input: DocumentInput) -> ParsedDocument:
         revision=doc_input.revision,
         blocks=blocks,
     )
-
-
-class HeaderTokenChunker:
-    """按标题层级分段，段内再按 token 递归切分，保留 heading_path。"""
-
-    def __init__(self, max_tokens: int = 700, overlap: int = 100) -> None:
-        self._max_tokens = max_tokens
-        self._overlap = overlap
-
-    def split(self, doc: ParsedDocument) -> list[Chunk]:
-        chunks: list[Chunk] = []
-        heading_stack: list[str] = []
-        buffer: list[str] = []
-        buffer_block_ids: list[str] = []
-
-        def heading_path() -> str:
-            return "/".join(heading_stack)
-
-        def flush() -> None:
-            if not buffer:
-                return
-            text = "\n".join(buffer).strip()
-            buffer.clear()
-            block_id = buffer_block_ids[0] if buffer_block_ids else None
-            buffer_block_ids.clear()
-            if not text:
-                return
-            for piece in self._split_by_tokens(text):
-                ord_ = len(chunks)
-                chunks.append(
-                    Chunk(
-                        id=_chunk_id(doc.document_id, ord_),
-                        document_id=doc.document_id,
-                        ord=ord_,
-                        heading_path=heading_path(),
-                        content=piece,
-                        token_count=count_tokens(piece),
-                        block_id=block_id,
-                    )
-                )
-
-        for block in doc.blocks:
-            if block.type == "heading":
-                flush()
-                self._push_heading(heading_stack, block)
-            else:
-                buffer.append(block.text)
-                if block.block_id:
-                    buffer_block_ids.append(block.block_id)
-        flush()
-        return chunks
-
-    @staticmethod
-    def _push_heading(stack: list[str], block: Block) -> None:
-        level = block.level or (len(stack) + 1)
-        del stack[level - 1 :]
-        stack.append(block.text.strip())
-
-    def _split_by_tokens(self, text: str) -> list[str]:
-        if count_tokens(text) <= self._max_tokens:
-            return [text]
-
-        paragraphs: list[str] = []
-        for p in text.split("\n"):
-            if not p.strip():
-                continue
-            if count_tokens(p) > self._max_tokens:
-                paragraphs.extend(split_by_tokens(p, self._max_tokens))
-            else:
-                paragraphs.append(p)
-
-        pieces: list[str] = []
-        current: list[str] = []
-        for para in paragraphs:
-            trial = "\n".join(current + [para])
-            if current and count_tokens(trial) > self._max_tokens:
-                pieces.append("\n".join(current))
-                current = self._carry_overlap(current) + [para]
-            else:
-                current.append(para)
-        if current:
-            pieces.append("\n".join(current))
-        return pieces
-
-    def _carry_overlap(self, current: list[str]) -> list[str]:
-        carried: list[str] = []
-        total = 0
-        for para in reversed(current):
-            t = count_tokens(para)
-            if total + t > self._overlap:
-                break
-            carried.insert(0, para)
-            total += t
-        return carried
 
 
 class ParentChildChunker:
@@ -219,7 +131,7 @@ class ParentChildChunker:
         for block in doc.blocks:
             if block.type == "heading":
                 flush_section()
-                HeaderTokenChunker._push_heading(heading_stack, block)
+                _push_heading(heading_stack, block)
             elif block.text.strip():
                 section_blocks.append(block)
         flush_section()
